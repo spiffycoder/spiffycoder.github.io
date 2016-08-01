@@ -1,0 +1,110 @@
+---
+title: "PML Assignment"
+author: "wp"
+date: "July 28, 2016"
+output: html_document
+---
+
+#Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+#Source Data:
+The training data for this project were downloaded from:\n
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data were obtained from:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+Thanks to http://groupware.les.inf.puc-rio.br/har for providing the source data used in this assignment.
+
+#Prepare the Environment:
+```{r warning=FALSE, message=FALSE}
+library(Hmisc)
+library(caret)
+library(randomForest)
+library(foreach)
+library(doParallel)
+set.seed(1024)
+options(warn=-1)
+```
+
+#Method:
+Loaded data from the training and test set provided for the assignment.
+In the process, replace any DIV/0 with an NA value.
+```{r warning=FALSE, results='markup'}
+training_set <- read.csv("pml-training.csv", na.strings=c("#DIV/0!") )
+test_set <- read.csv("pml-testing.csv", na.strings=c("#DIV/0!") )
+```
+
+Set all columns past 7 to be numeric.
+```{r}
+
+for(i in c(8:ncol(training_set)-1)) {training_set[,i] = as.numeric(as.character(training_set[,i]))}
+for(i in c(8:ncol(test_set)-1)) {test_set[,i] = as.numeric(as.character(test_set[,i]))}
+```
+
+We need to build the feaure set.
+To do this, remove any columns that don't contain data (zero sum), keeping the useful columns. 
+Also remove user name, timestamps and windows.  
+Display the feature set selected
+THen, build the model data using the selected feature set.
+
+```{r}
+feature_set <- colnames(training_set[colSums(is.na(training_set)) == 0])[-(1:7)]
+feature_set
+model_data <- training_set[feature_set]
+```
+
+This gives model data built using the selected feature set.
+
+```{r}
+idx <- createDataPartition(y=model_data$classe, p=0.75, list=FALSE )
+training <- model_data[idx,]
+testing <- model_data[-idx,]
+```
+
+We now build 5 random forests with 250 trees each. Speed things up with parallel processing. 
+
+```{r}
+registerDoParallel()
+x <- training[-ncol(training)]
+y <- training$classe
+
+rf <- foreach(ntree=rep(250, 5), .combine=randomForest::combine, .packages='randomForest') %dopar% {
+randomForest(x, y, ntree=ntree) 
+}
+```
+
+Write some error reports for both training and test data.
+```{r}
+predictions1 <- predict(rf, newdata=training)
+confusionMatrix(predictions1,training$classe)
+
+
+predictions2 <- predict(rf, newdata=testing)
+confusionMatrix(predictions2,testing$classe)
+```
+
+#Conclusions and Test Data Submission
+
+The confusion matrix shows this model is quite accurate. Since the test data was around 99% 
+accurate, we anticipate most of the submitted test cases to be correct.  Fortunately, they 
+were also correct.
+
+#Prepare the Submission
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+
+x <- test_set
+x <- x[feature_set[feature_set!='classe']]
+answers <- predict(rf, newdata=x)
+
+answers
+
+pml_write_files(answers)
+```
